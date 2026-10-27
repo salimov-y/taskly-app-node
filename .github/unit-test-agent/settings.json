@@ -2,8 +2,6 @@
   "permissions": {
     "allow": [
       "Read",
-      "Grep",
-      "Glob",
       "Skill",
       "Edit(./backend/tests/**)",
       "Edit(./frontend/src/**/*.test.ts)",

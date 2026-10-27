@@ -17,7 +17,7 @@ A source file is in scope when the Vitest coverage config of its package include
 - backend: `backend/tests/<module>.test.ts`, importing the source by path, e.g. `tests/router.test.ts` for `src/features/todos/router.ts`.
 - frontend: next to the source, `TodoItem.tsx` → `TodoItem.test.tsx`.
 
-When the name does not match, search the test folders for the module path with Grep before deciding there is no test.
+When the name does not match, search the test folders for the module path before deciding there is no test: `grep -rln "features/todos/router" backend/tests` or `grep -rln "TodoItem" frontend/src`.
 
 ## Pull request mode
 

@@ -136,7 +136,6 @@ jobs:
             --agent unit-test-agent \
             --settings "$CONFIG_DIR/.github/unit-test-agent/settings.json" \
             --permission-mode dontAsk \
-            --permission-prompts none \
             --strict-mcp-config \
             --max-budget-usd "$MAX_BUDGET_USD" \
             --json-schema "$(cat "$CONFIG_DIR/.github/unit-test-agent/report.schema.json")" \

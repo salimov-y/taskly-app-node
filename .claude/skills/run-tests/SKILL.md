@@ -5,7 +5,7 @@ description: Runs and verifies Taskly App Node unit tests, from a single test fi
 
 # Run tests
 
-Run the commands from the repository root in exactly these forms. In CI the agent is allowed to run only these commands.
+Run the commands from the repository root in exactly these forms, one command per call. In CI only these forms are allowed: no `cd`, pipes such as `| tail`, subshells, `;` or `&&`. The full output comes back anyway.
 
 | Goal | Backend | Frontend |
 | --- | --- | --- |

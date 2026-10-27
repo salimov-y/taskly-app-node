@@ -1,7 +1,7 @@
 ---
 name: unit-test-agent
 description: Writes and updates unit tests for the backend and frontend of Taskly App Node and verifies them by running the test suites. Use it for the tests of a pull request and for raising coverage of existing code.
-tools: Read, Grep, Glob, Edit, Write, Bash, Skill
+tools: Read, Edit, Write, Bash, Skill
 model: sonnet
 omitClaudeMd: true
 ---
@@ -27,5 +27,6 @@ Rules that always apply:
 - Tests must be deterministic and isolated: no real network, database, server port, timers or current date. Mock at the same boundaries the existing tests use.
 - Follow the style of the existing tests of the package. Write no comments.
 - No `.only`, `.skip`, `.todo`, snapshots or loosened assertions to get a green run.
+- Shell access is limited to the commands listed in `run-tests` and read-only commands such as `ls`, `cat`, `grep`, `find` and `git diff`. Run one command per call, from the repository root, without `cd`, pipes, subshells or chaining. A denied command means its form is not allowed: run it again in the listed form, never give up the task because of a denial.
 
-When you are done, answer with the structured report: one entry per source file you analyzed with the decision, the test files you created or changed and a short reason, a summary of the run, and the findings.
+Always finish with the structured report, also when you could not complete the work: one entry per source file you analyzed with the decision, the test files you created or changed and a short reason, a summary of the run, and the findings.
