@@ -10,6 +10,71 @@ vi.mock('../hooks/useDeleteTodoMutation', () => ({
   useDeleteTodoMutation: vi.fn(),
 }))
 
+function mockMutation(overrides: object = {}) {
+  const mutateAsync = vi.fn().mockResolvedValue(undefined)
+  vi.mocked(useDeleteTodoMutation).mockReturnValue({
+    isPending: false,
+    error: null,
+    mutateAsync,
+    ...overrides,
+  } as unknown as ReturnType<typeof useDeleteTodoMutation>)
+  return mutateAsync
+}
+
+it('deletes the task and reports it', async () => {
+  const user = userEvent.setup()
+  const mutateAsync = mockMutation()
+  const onDeleted = vi.fn()
+  render(
+    <DeleteTodoDialog
+      todo={todoFixture}
+      busy={false}
+      onClose={vi.fn()}
+      onDeleted={onDeleted}
+    />,
+  )
+  expect(screen.queryByTestId('alert')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Delete task' }))
+  expect(mutateAsync).toHaveBeenCalledWith(todoFixture.id)
+  expect(onDeleted).toHaveBeenCalledTimes(1)
+})
+
+it('does not report a deletion that failed', async () => {
+  const user = userEvent.setup()
+  const mutateAsync = vi.fn().mockRejectedValue(new Error('Server error'))
+  mockMutation({ mutateAsync })
+  const onDeleted = vi.fn()
+  render(
+    <DeleteTodoDialog
+      todo={todoFixture}
+      busy={false}
+      onClose={vi.fn()}
+      onDeleted={onDeleted}
+    />,
+  )
+  await user.click(screen.getByRole('button', { name: 'Delete task' }))
+  expect(mutateAsync).toHaveBeenCalledWith(todoFixture.id)
+  expect(onDeleted).not.toHaveBeenCalled()
+  expect(screen.getByRole('dialog', { name: 'Delete task?' })).toBeVisible()
+})
+
+it.each([
+  ['the page is busy', true, false],
+  ['the deletion is pending', false, true],
+])('disables the actions when %s', (_, busy, isPending) => {
+  mockMutation({ isPending })
+  render(
+    <DeleteTodoDialog
+      todo={todoFixture}
+      busy={busy}
+      onClose={vi.fn()}
+      onDeleted={vi.fn()}
+    />,
+  )
+  expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: 'Deleting…' })).toBeDisabled()
+})
+
 it('shows a deletion error and allows cancelling without deleting', async () => {
   const user = userEvent.setup()
   const mutateAsync = vi.fn()
