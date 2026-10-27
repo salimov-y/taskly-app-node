@@ -27,7 +27,13 @@
     "enabled": true,
     "failIfUnavailable": true,
     "autoAllowBashIfSandboxed": false,
-    "allowUnsandboxedCommands": false
+    "allowUnsandboxedCommands": false,
+    "credentials": {
+      "envVars": [
+        { "name": "ANTHROPIC_API_KEY", "mode": "deny" },
+        { "name": "CLAUDE_CODE_OAUTH_TOKEN", "mode": "deny" }
+      ]
+    }
   },
   "disableAllHooks": true
 }
