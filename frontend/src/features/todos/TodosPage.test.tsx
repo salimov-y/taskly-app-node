@@ -330,9 +330,9 @@ it('passes the number of completed tasks to the header', () => {
 })
 
 it.each([
-  [1, '1 completed task deleted.'],
-  [3, '3 completed tasks deleted.'],
-  [0, '0 completed tasks deleted.'],
+  [1, 'Cleared 1 completed task.'],
+  [3, 'Cleared 3 completed tasks.'],
+  [0, 'No completed tasks to clear.'],
 ])('announces %i cleared tasks', async (deleted, message) => {
   const user = userEvent.setup()
   const { clearMutateAsync, notify } = setup()
