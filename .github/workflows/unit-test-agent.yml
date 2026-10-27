@@ -87,7 +87,7 @@ jobs:
         if: steps.prepare.outputs.run_agent == 'true'
         run: |
           for package in backend frontend; do
-            npm --prefix "$package" run test:coverage > /dev/null 2>&1 || true
+            npm --prefix "$package" run test:coverage -- --coverage.reportOnFailure > /dev/null 2>&1 || true
             cp "$package/coverage/coverage-summary.json" "$REPORT_DIR/$package-coverage-before.json" || true
           done
 
@@ -132,6 +132,7 @@ jobs:
         run: |
           [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
           [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          unset GITHUB_STEP_SUMMARY
           claude -p "$(cat "$REPORT_DIR/task.md")" \
             --agent unit-test-agent \
             --settings "$CONFIG_DIR/.github/unit-test-agent/settings.json" \
