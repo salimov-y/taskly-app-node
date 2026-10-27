@@ -27,3 +27,20 @@ it('sends only writable task fields on creation', async () => {
     }),
   })
 })
+
+it('sends a partial update with a PATCH request', async () => {
+  vi.mocked(request).mockResolvedValue(todoFixture)
+  await expect(todosApi.update(7, { completed: true })).resolves.toEqual(
+    todoFixture,
+  )
+  expect(request).toHaveBeenCalledWith('/todos/7', {
+    method: 'PATCH',
+    body: JSON.stringify({ completed: true }),
+  })
+})
+
+it('deletes a task with a DELETE request', async () => {
+  vi.mocked(request).mockResolvedValue(undefined)
+  await expect(todosApi.remove(7)).resolves.toBeUndefined()
+  expect(request).toHaveBeenCalledWith('/todos/7', { method: 'DELETE' })
+})
