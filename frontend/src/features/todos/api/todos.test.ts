@@ -39,6 +39,14 @@ it('sends a partial update with a PATCH request', async () => {
   })
 })
 
+it('clears completed tasks with a DELETE request', async () => {
+  vi.mocked(request).mockResolvedValue({ deleted: 2 })
+  await expect(todosApi.clearCompleted()).resolves.toEqual({ deleted: 2 })
+  expect(request).toHaveBeenCalledWith('/todos/completed', {
+    method: 'DELETE',
+  })
+})
+
 it('deletes a task with a DELETE request', async () => {
   vi.mocked(request).mockResolvedValue(undefined)
   await expect(todosApi.remove(7)).resolves.toBeUndefined()
