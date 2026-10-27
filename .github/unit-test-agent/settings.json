@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Read",
+      "Grep",
+      "Glob",
+      "Skill",
+      "Edit(./backend/tests/**)",
+      "Edit(./frontend/src/**/*.test.ts)",
+      "Edit(./frontend/src/**/*.test.tsx)",
+      "Edit(./frontend/src/test/**)",
+      "Bash(npm --prefix backend test *)",
+      "Bash(npm --prefix frontend test *)",
+      "Bash(npm --prefix backend run typecheck)",
+      "Bash(npm --prefix frontend run typecheck)",
+      "Bash(npm --prefix backend run test:coverage *)",
+      "Bash(npm --prefix frontend run test:coverage *)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./**/.env*)",
+      "WebFetch",
+      "WebSearch"
+    ]
+  },
+  "disableAllHooks": true
+}

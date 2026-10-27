@@ -1,0 +1,235 @@
+name: Unit test agent
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - backend/src/**
+      - frontend/src/**
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: unit-test-agent-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-test-agent:
+    if: github.event_name == 'workflow_dispatch' || (github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      pull-requests: write
+    env:
+      MODE: ${{ github.event_name == 'pull_request' && 'pull-request' || 'coverage' }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref || github.ref_name }}
+      TRUSTED_SHA: ${{ github.event.pull_request.base.sha || github.sha }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      CLAUDE_CODE_VERSION: 2.1.308
+    steps:
+      - name: Check out the branch
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.HEAD_SHA }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Stop coverage runs on the default branch
+        if: env.MODE == 'coverage' && github.ref_name == github.event.repository.default_branch
+        run: |
+          echo "::error::Run the coverage mode on a feature branch: the agent pushes its tests to the branch it runs on."
+          exit 1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          npm ci --prefix backend
+          npm ci --prefix frontend
+
+      - name: Prepare the run
+        id: prepare
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: |
+          report_dir="$RUNNER_TEMP/unit-test-agent"
+          mkdir -p "$report_dir/config"
+          echo "REPORT_DIR=$report_dir" >> "$GITHUB_ENV"
+          echo "CONFIG_DIR=$report_dir/config" >> "$GITHUB_ENV"
+          git archive "$TRUSTED_SHA" .claude .github/unit-test-agent | tar -x -C "$report_dir/config"
+          if [ "$MODE" = pull-request ]; then
+            git diff --name-only --diff-filter=ACMR "$BASE_SHA...$HEAD_SHA" -- backend/src frontend/src \
+              | grep -vE '\.test\.tsx?$|^frontend/src/test/' > "$report_dir/changed-sources.txt" || true
+          else
+            : > "$report_dir/changed-sources.txt"
+          fi
+          configured=$([ -n "$ANTHROPIC_API_KEY$CLAUDE_CODE_OAUTH_TOKEN" ] && echo true || echo false)
+          has_task=$([ "$MODE" = coverage ] || [ -s "$report_dir/changed-sources.txt" ] && echo true || echo false)
+          echo "configured=$configured" >> "$GITHUB_OUTPUT"
+          echo "run_agent=$([ "$configured" = true ] && [ "$has_task" = true ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          if [ "$configured" = false ]; then
+            echo "::warning::Add the ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN secret to run the unit test agent."
+          fi
+
+      - name: Measure coverage before the agent
+        if: steps.prepare.outputs.run_agent == 'true'
+        run: |
+          for package in backend frontend; do
+            npm --prefix "$package" run test:coverage > /dev/null 2>&1 || true
+            cp "$package/coverage/coverage-summary.json" "$REPORT_DIR/$package-coverage-before.json" || true
+          done
+
+      - name: Write the task
+        if: steps.prepare.outputs.run_agent == 'true'
+        run: |
+          {
+            echo "Mode: $MODE"
+            if [ "$MODE" = pull-request ]; then
+              echo "Base commit: $BASE_SHA"
+              echo "Head commit: $HEAD_SHA"
+              echo "Changed source files:"
+              sed 's/^/- /' "$REPORT_DIR/changed-sources.txt"
+            fi
+          } > "$REPORT_DIR/task.md"
+          cat "$REPORT_DIR/task.md"
+
+      - name: Use the agent configuration of the base branch
+        if: steps.prepare.outputs.run_agent == 'true'
+        run: |
+          rm -rf .claude
+          cp -R "$CONFIG_DIR/.claude" .claude
+
+      - name: Install Claude Code
+        if: steps.prepare.outputs.run_agent == 'true'
+        run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+
+      - name: Run the unit test agent
+        id: agent
+        if: steps.prepare.outputs.run_agent == 'true'
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: 1
+          CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: 1
+          CLAUDE_CODE_MAX_TURNS: ${{ github.event_name == 'pull_request' && 80 || 200 }}
+          MAX_BUDGET_USD: ${{ github.event_name == 'pull_request' && 5 || 20 }}
+        run: |
+          [ -n "$ANTHROPIC_API_KEY" ] || unset ANTHROPIC_API_KEY
+          [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ] || unset CLAUDE_CODE_OAUTH_TOKEN
+          claude -p "$(cat "$REPORT_DIR/task.md")" \
+            --agent unit-test-agent \
+            --settings "$CONFIG_DIR/.github/unit-test-agent/settings.json" \
+            --permission-mode dontAsk \
+            --permission-prompts none \
+            --strict-mcp-config \
+            --max-budget-usd "$MAX_BUDGET_USD" \
+            --json-schema "$(cat "$CONFIG_DIR/.github/unit-test-agent/report.schema.json")" \
+            --output-format stream-json \
+            --verbose \
+            < /dev/null > "$REPORT_DIR/transcript.jsonl"
+          jq -e 'select(.type == "result") | .is_error == false and .structured_output != null' "$REPORT_DIR/transcript.jsonl"
+
+      - name: Restore the branch configuration
+        if: always() && steps.prepare.outputs.run_agent == 'true'
+        run: |
+          rm -rf .claude
+          git checkout "$HEAD_SHA" -- .claude 2> /dev/null || true
+
+      - name: Check that the agent changed only tests
+        id: guard
+        if: always() && steps.prepare.outputs.run_agent == 'true'
+        run: |
+          git status --porcelain --untracked-files=all | cut -c4- > "$REPORT_DIR/agent-changes.txt"
+          cat "$REPORT_DIR/agent-changes.txt"
+          if grep -vE '^(backend/tests/.+\.ts|frontend/src/.+\.test\.tsx?|frontend/src/test/.+\.tsx?)$' "$REPORT_DIR/agent-changes.txt"; then
+            echo "::error::The agent changed files outside the tests. Its changes are discarded."
+            git reset --hard --quiet
+            git clean -fd --quiet
+            exit 1
+          fi
+
+      - name: Format the frontend tests
+        if: steps.guard.outcome == 'success'
+        working-directory: frontend
+        run: |
+          sed -n 's|^frontend/||p' "$REPORT_DIR/agent-changes.txt" > "$REPORT_DIR/frontend-tests.txt"
+          if [ -s "$REPORT_DIR/frontend-tests.txt" ]; then
+            xargs npx prettier --write < "$REPORT_DIR/frontend-tests.txt"
+          fi
+
+      - name: Verify type checks and tests
+        id: verify
+        if: always() && steps.prepare.outputs.run_agent == 'true'
+        run: |
+          status=0
+          for package in backend frontend; do
+            npm --prefix "$package" run typecheck || status=1
+            npm --prefix "$package" run test:coverage -- --reporter=default --reporter=json --outputFile.json="$REPORT_DIR/$package-tests.json" || status=1
+            cp "$package/coverage/coverage-summary.json" "$REPORT_DIR/$package-coverage-after.json" || true
+          done
+          exit $status
+
+      - name: Push the tests
+        id: push
+        if: always() && steps.guard.outcome == 'success' && steps.verify.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git add -- backend/tests frontend/src
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          commit_message=$([ "$MODE" = pull-request ] && echo "Add unit tests for the changed code" || echo "Add missing unit tests")
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" commit --quiet -m "$commit_message"
+          git push --quiet "https://x-access-token:$GH_TOKEN@github.com/$GITHUB_REPOSITORY.git" "HEAD:refs/heads/$HEAD_REF"
+          echo "commit_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Report the result
+        if: always() && steps.prepare.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AGENT_CONFIGURED: ${{ steps.prepare.outputs.configured }}
+          RUN_AGENT: ${{ steps.prepare.outputs.run_agent }}
+          AGENT_OUTCOME: ${{ steps.agent.outcome }}
+          GUARD_OUTCOME: ${{ steps.guard.outcome }}
+          VERIFY_OUTCOME: ${{ steps.verify.outcome }}
+          COMMIT_SHA: ${{ steps.push.outputs.commit_sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          node "$CONFIG_DIR/.github/unit-test-agent/report.ts"
+          cat "$REPORT_DIR/report.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$MODE" = pull-request ]; then
+            comment_id=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --paginate \
+              --jq '.[] | select(.body | startswith("<!-- unit-test-agent -->")) | .id' | head -n 1)
+            if [ -n "$comment_id" ]; then
+              gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$comment_id" -F body=@"$REPORT_DIR/report.md" > /dev/null
+            else
+              gh pr comment "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --body-file "$REPORT_DIR/report.md"
+            fi
+          fi
+
+      - name: Upload the agent transcript
+        if: always() && steps.prepare.outputs.run_agent == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: unit-test-agent-transcript
+          path: ${{ runner.temp }}/unit-test-agent/transcript.jsonl
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Fail when the agent result is not usable
+        if: always() && (steps.agent.outcome == 'failure' || steps.guard.outcome == 'failure' || steps.verify.outcome == 'failure')
+        run: exit 1
