@@ -111,9 +111,13 @@ jobs:
           rm -rf .claude
           cp -R "$CONFIG_DIR/.claude" .claude
 
-      - name: Install Claude Code
+      - name: Install Claude Code and the sandbox tools
         if: steps.prepare.outputs.run_agent == 'true'
-        run: npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends bubblewrap socat
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          npm install --global "@anthropic-ai/claude-code@$CLAUDE_CODE_VERSION"
 
       - name: Run the unit test agent
         id: agent
