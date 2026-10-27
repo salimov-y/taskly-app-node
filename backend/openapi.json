@@ -78,6 +78,31 @@
         }
       }
     },
+    "/api/todos/completed": {
+      "delete": {
+        "responses": {
+          "200": {
+            "description": "Completed tasks deleted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "deleted"
+                  ],
+                  "properties": {
+                    "deleted": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/todos/{id}": {
       "parameters": [
         {
