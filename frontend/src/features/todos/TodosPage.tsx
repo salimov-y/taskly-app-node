@@ -14,6 +14,13 @@ import { useTodosQuery } from './hooks/useTodosQuery'
 import { useUpdateTodoMutation } from './hooks/useUpdateTodoMutation'
 import type { Todo } from './types'
 
+function getClearedNotice(deletedCount: number) {
+  if (deletedCount === 0) return 'No completed tasks to clear.'
+  return deletedCount === 1
+    ? 'Cleared 1 completed task.'
+    : `Cleared ${deletedCount} completed tasks.`
+}
+
 export function TodosPage() {
   const todosQuery = useTodosQuery()
   const todos = todosQuery.data ?? []
@@ -47,11 +54,7 @@ export function TodosPage() {
     if (busy) return
     const clearResult = await clearCompleted.mutateAsync().catch(() => null)
     if (!clearResult) return
-    notify(
-      clearResult.deleted === 1
-        ? '1 completed task deleted.'
-        : `${clearResult.deleted} completed tasks deleted.`,
-    )
+    notify(getClearedNotice(clearResult.deleted))
   }
   async function retry() {
     toggleTodo.reset()
